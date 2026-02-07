@@ -1,0 +1,312 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Send, Bot, User, Loader2, Zap, Copy, Check, Code2, Trash2, Plus, Menu, X, MessageSquare, Settings, Key, ExternalLink, Globe, Sparkles, Languages } from 'lucide-react';
+
+// --- UTILIDADES ---
+
+const CodeBlock = ({ language, content }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    const textArea = document.createElement("textarea");
+    textArea.value = content;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="my-4 rounded-xl overflow-hidden border border-zinc-200 bg-zinc-950 shadow-sm group">
+      <div className="flex justify-between items-center px-4 py-2 bg-zinc-900 border-b border-zinc-800">
+        <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">{language}</span>
+        <button onClick={handleCopy} className="flex items-center gap-1.5 text-[10px] text-zinc-500 hover:text-white transition-all uppercase font-bold">
+          {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+          {copied ? 'Copiar' : 'Copiar'}
+        </button>
+      </div>
+      <div className="p-4 overflow-x-auto text-xs font-mono text-zinc-300 leading-relaxed">
+        <code>{content}</code>
+      </div>
+    </div>
+  );
+};
+
+const MessageRenderer = ({ content }) => {
+  const parts = useMemo(() => {
+    const codeRegex = /```(\w+)?\n([\s\S]*?)```/g;
+    const result = [];
+    let lastIndex = 0;
+    let match;
+    while ((match = codeRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) result.push({ type: 'text', value: content.slice(lastIndex, match.index) });
+      result.push({ type: 'code', language: match[1] || 'code', value: match[2].trim() });
+      lastIndex = codeRegex.lastIndex;
+    }
+    if (lastIndex < content.length) result.push({ type: 'text', value: content.slice(lastIndex) });
+    return result;
+  }, [content]);
+
+  return (
+    <div className="space-y-1">
+      {parts.map((part, i) => (
+        part.type === 'code' ? (
+          <CodeBlock key={i} language={part.language} content={part.value} />
+        ) : (
+          <p key={i} className="text-sm md:text-base whitespace-pre-wrap leading-relaxed">
+            {part.value.split(/(\*\*.*?\*\*)/g).map((chunk, j) => {
+              if (chunk.startsWith('**') && chunk.endsWith('**')) return <strong key={j} className="font-bold text-indigo-600">{chunk.slice(2, -2)}</strong>;
+              return chunk;
+            })}
+          </p>
+        )
+      ))}
+    </div>
+  );
+};
+
+// --- APP PRINCIPAL ---
+
+const App = () => {
+  const [userKey, setUserKey] = useState(localStorage.getItem('gemini_key') || '');
+  const [showSettings, setShowSettings] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  // Cargamos chats con soporte para la propiedad 'language'
+  const [chats, setChats] = useState(() => {
+    const saved = localStorage.getItem('xj_nexus_v2_chats');
+    if (saved) return JSON.parse(saved);
+    return [{ 
+      id: 'default', 
+      title: 'Nexo Principal', 
+      language: 'es', // Idioma por defecto
+      messages: [{ role: 'assistant', content: 'Conexión establecida. Soy **𝒳𝒥 𝒩𝑒𝓍𝓊𝓈 𝒜𝐼**. ¿Cómo puedo asistirte?' }] 
+    }];
+  });
+  
+  const [activeChatId, setActiveChatId] = useState(() => {
+    const saved = localStorage.getItem('xj_nexus_v2_active_id');
+    return saved || 'default';
+  });
+
+  const activeChat = chats.find(c => c.id === activeChatId) || chats[0];
+
+  useEffect(() => {
+    localStorage.setItem('xj_nexus_v2_chats', JSON.stringify(chats));
+    localStorage.setItem('xj_nexus_v2_active_id', activeChatId);
+    localStorage.setItem('gemini_key', userKey);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chats, activeChatId, userKey]);
+
+  // Detector de idioma rudimentario pero efectivo para el estado
+  const detectLanguage = (text) => {
+    const langPatterns = {
+      en: /\b(the|and|hello|how|what|is|it|you|hi)\b/i,
+      pt: /\b(o|e|ola|como|o que|é|isso|você|oi)\b/i,
+      fr: /\b(le|et|bonjour|comment|quel|est|ce|vous|salut)\b/i
+    };
+    
+    for (const [lang, pattern] of Object.entries(langPatterns)) {
+      if (pattern.test(text)) return lang;
+    }
+    return 'es'; // Default
+  };
+
+  const createNewChat = () => {
+    const newId = Date.now().toString();
+    const newChat = { 
+      id: newId, 
+      title: `Nexo ${chats.length + 1}`, 
+      language: 'es',
+      messages: [{ role: 'assistant', content: 'Frecuencia de nexo abierta. Esperando datos.' }] 
+    };
+    setChats([newChat, ...chats]);
+    setActiveChatId(newId);
+    setIsSidebarOpen(false);
+    setShowSettings(false);
+  };
+
+  const deleteChat = (id, e) => {
+    e.stopPropagation();
+    const newChats = chats.filter(c => c.id !== id);
+    if (newChats.length === 0) {
+      const reset = [{ id: 'default', title: 'Nexo Principal', language: 'es', messages: [{ role: 'assistant', content: 'Reinicio completado.' }] }];
+      setChats(reset);
+      setActiveChatId('default');
+    } else {
+      setChats(newChats);
+      if (activeChatId === id) setActiveChatId(newChats[0].id);
+    }
+  };
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    const userMsg = input.trim();
+    if (!userMsg || isLoading) return;
+    if (!userKey) { setShowSettings(true); return; }
+
+    // Actualizar idioma si el mensaje es descriptivo
+    let currentLang = activeChat.language || 'es';
+    if (userMsg.length > 5) {
+      currentLang = detectLanguage(userMsg);
+    }
+
+    const currentMessages = [...activeChat.messages, { role: 'user', content: userMsg }];
+    
+    // Guardamos mensajes e idioma detectado en el estado
+    setChats(chats.map(c => c.id === activeChatId 
+      ? { ...c, language: currentLang, messages: currentMessages } 
+      : c
+    ));
+    
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${userKey}`;
+      const history = currentMessages.slice(-15).map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      }));
+
+      const langNames = { es: "Spanish", en: "English", pt: "Portuguese", fr: "French" };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: history,
+          systemInstruction: { 
+            parts: [{ 
+              text: `Eres 𝒳𝒥 𝒩𝑒𝓍𝓊𝓈 𝒜𝐼. Debes responder OBLIGATORIAMENTE en idioma ${langNames[currentLang] || 'Spanish'}. 
+              No importa si el usuario envía mensajes cortos como 'ok' o 'yes', mantente en ese idioma. 
+              JAMÁS menciones a Google Home o asistentes domésticos. Sé profesional y usa formato markdown.` 
+            }] 
+          }
+        })
+      });
+
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Error de sincronización.";
+      
+      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: [...currentMessages, { role: 'assistant', content: aiText }] } : c));
+    } catch (err) {
+      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: [...currentMessages, { role: 'assistant', content: "Fallo en la conexión neuronal." }] } : c));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-white text-zinc-900 font-sans overflow-hidden">
+      
+      {/* Sidebar */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-zinc-50 border-r border-zinc-200 transition-transform lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex flex-col h-full">
+          <div className="p-5 flex items-center justify-between bg-white border-b border-zinc-200">
+            <h2 className="font-serif italic font-black text-indigo-700 text-lg">𝒳𝒥 𝒩𝑒𝓍𝓊𝓈</h2>
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-zinc-400"><X size={20}/></button>
+          </div>
+          
+          <div className="p-4"><button onClick={createNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all font-bold shadow-lg shadow-indigo-100"><Plus size={18} /> Nuevo Nexo</button></div>
+
+          <div className="flex-1 overflow-y-auto px-3 space-y-1">
+            <p className="px-3 py-2 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Memorias</p>
+            {chats.map(chat => (
+              <div 
+                key={chat.id} 
+                onClick={() => { setActiveChatId(chat.id); setShowSettings(false); setIsSidebarOpen(false); }}
+                className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${activeChatId === chat.id && !showSettings ? 'bg-white shadow-md text-indigo-700 ring-1 ring-zinc-200' : 'hover:bg-zinc-100 text-zinc-500'}`}
+              >
+                <div className="flex items-center gap-3 truncate">
+                  <div className="w-6 h-6 rounded-md bg-zinc-200 flex items-center justify-center text-[10px] font-bold uppercase">{chat.language || 'es'}</div>
+                  <span className="truncate text-sm font-semibold">{chat.title}</span>
+                </div>
+                <button onClick={(e) => deleteChat(chat.id, e)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500"><Trash2 size={14}/></button>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-4 border-t border-zinc-200">
+            <button onClick={() => { setShowSettings(true); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${showSettings ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200' : 'hover:bg-zinc-200 text-zinc-600'}`}>
+              <Settings size={18} /> <span className="font-bold">Protocolos</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0 bg-white">
+        <header className="p-4 border-b border-zinc-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-40">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2 lg:hidden text-zinc-500"><Menu size={24}/></button>
+            <h1 className="font-serif italic font-black text-xl text-indigo-900 truncate">
+              {showSettings ? 'Protocolos' : '𝒳𝒥 𝒩𝑒𝓍𝓊𝓈 𝒜𝐼'}
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            {!showSettings && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100">
+                <Languages size={14} />
+                <span className="text-[10px] font-black uppercase tracking-tighter">{activeChat.language || 'es'}</span>
+              </div>
+            )}
+            {!userKey && <span className="text-[10px] bg-red-50 text-red-500 px-3 py-1 rounded-full font-black animate-pulse">OFFLINE</span>}
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto">
+          {showSettings ? (
+            <div className="max-w-xl mx-auto p-6 md:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="bg-zinc-50 border border-zinc-200 rounded-[2.5rem] p-10 space-y-8 shadow-2xl">
+                <div className="bg-indigo-600 w-16 h-16 rounded-2xl flex items-center justify-center text-white"><Key size={32} /></div>
+                <div><h2 className="text-3xl font-black tracking-tight mb-2">Acceso</h2><p className="text-zinc-500 text-sm">Configura tu Gemini API Key para activar la inteligencia.</p></div>
+                <input type="password" value={userKey} onChange={(e) => setUserKey(e.target.value)} placeholder="AIzaSy..." className="w-full bg-white border-2 border-zinc-100 rounded-2xl px-6 py-4 focus:border-indigo-600 outline-none transition-all font-mono text-sm" />
+                <div className="bg-indigo-50/50 border border-indigo-100 p-5 rounded-3xl flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">AI Studio</span>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="bg-indigo-600 text-white p-2 rounded-lg"><ExternalLink size={16} /></a>
+                </div>
+                <button onClick={() => setShowSettings(false)} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100">GUARDAR</button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 md:p-8 space-y-10 max-w-3xl mx-auto w-full pb-32">
+              {activeChat.messages.map((msg, index) => (
+                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in duration-500`}>
+                  <div className={`flex gap-5 max-w-[95%] md:max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border-2 ${msg.role === 'user' ? 'bg-white border-zinc-200 text-zinc-400' : 'bg-indigo-600 border-indigo-500 text-white shadow-lg'}`}>
+                      {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
+                    </div>
+                    <div className={`p-5 rounded-3xl ${msg.role === 'user' ? 'bg-zinc-900 text-white rounded-tr-none' : 'bg-zinc-50 border border-zinc-100 text-zinc-900 rounded-tl-none shadow-sm'}`}>
+                      <MessageRenderer content={msg.content} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {isLoading && (
+                <div className="flex gap-5"><div className="w-10 h-10 rounded-2xl bg-indigo-600 animate-pulse" /><div className="flex items-center gap-2 p-5 bg-zinc-50 rounded-3xl"><span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></span><span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span><span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.4s]"></span></div></div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </main>
+
+        {!showSettings && (
+          <footer className="p-5 md:p-8 bg-white border-t border-zinc-100 sticky bottom-0 z-40 backdrop-blur-lg bg-white/90">
+            <form onSubmit={handleSend} className="max-w-3xl mx-auto flex gap-4">
+              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe al nexo..." className="flex-1 bg-zinc-100 border-2 border-transparent rounded-2xl px-6 py-4 focus:bg-white focus:border-indigo-600 outline-none transition-all font-medium" disabled={isLoading} />
+              <button type="submit" disabled={isLoading || !input.trim()} className="bg-indigo-600 hover:bg-indigo-700 text-white w-16 rounded-2xl shadow-xl shadow-indigo-100 active:scale-95 flex items-center justify-center"><Send size={22} /></button>
+            </form>
+          </footer>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
+
